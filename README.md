@@ -1,0 +1,302 @@
+guideline-db
+================
+
+The goal of guideline-db is to demonstrate methods of connecting to
+common types of databases used in projects at Wake Forest University
+School of Medicine.
+
+## General
+
+### Using Renviron
+
+When we connect to a database, we are most likely using connection
+information we don’t want to share with those not on our projects. The
+examples below utilize Renviron to securely store the credentials needed
+to access the databases. For a review of how to use Renviron, see
+[guideline-data-safety](https://github.com/WFUSM-BDS/guideline-data-safety?tab=readme-ov-file#using-renviron).
+
+## SQL
+
+Note: To connect to a SQL database, be sure you have already set up the
+connection through ODBC Data Sources (Windows).
+
+There are a variety of packages that allow you to connect to a SQL
+database in R including `RODBC` and `odbc`.
+
+### Option 1: RODBC
+
+The `odbcConnect` function from the `RODBC` package requires at least 3
+arguments
+
+- `dsn`: a character string. The string must be the name you chose to
+  refer to the data source when setting up the connection in ODBC Data
+  Source Administrator (Windows). This may not be the same as the actual
+  database name. In SAS when you set up a connection through a libname
+  statement, it may look something like this.
+
+``` r
+libname leap odbc dsn='XXXX' uid='XXXX' pwd='XXXX';
+```
+
+`dsn` in the libname statement should match the `dsn` within
+`odbcConnect`.
+
+- `uid`: a character string for user ID for authentication
+
+- `pwd`: a character string for password for authentication
+
+#### Example
+
+``` r
+library(RODBC)
+library(tidyverse)
+
+# Set up connection
+db <- odbcConnect(dsn = Sys.getenv("leap_db"),
+                  uid = Sys.getenv("leap_uid"),
+                  pwd = Sys.getenv('leap_pwd'))
+
+# Explore table names in the database
+allTables <- sqlTables(db)
+
+# Read the 4 variables specified from `randomization` table 
+rand_table <- db %>%
+  sqlQuery('SELECT "pid", "siteID", "d_inserted", "allocated"
+            FROM randomization')  %>%
+    drop_na(d_inserted)
+
+# Close the connection
+odbcClose(db)
+```
+
+### Option 2: odbc
+
+The `dbConnect` uses similar arguments as `odbcConnect`, however it may
+require more information including the driver and server which were
+configured when the connection was initially set up on your computer.
+
+One major difference is that `dbConnect` also allows the argument
+`database` which is not necessarily the same as the `dsn` since the
+`dsn` is the name that you chose to reference the data source when you
+set up the connection and the `database` is the actual name of the
+database. Either argument can be supplied, but I would recommend using
+`dsn` since that is what regular SAS users will be used to using
+already.
+
+#### Example
+
+``` r
+library(odbc)
+library(DBI)
+
+# Set up connection
+con = dbConnect(odbc(),
+                driver = "ODBC Driver 17 for SQL Server",
+                server = Sys.getenv("prod_server"),
+                dsn = Sys.getenv("leap_db"),
+                uid = Sys.getenv("leap_uid"),
+                pwd = Sys.getenv('leap_pwd')
+)
+
+# Read the 4 variables specified from `randomization` table 
+rand_table <- dbGetQuery(con,
+                         'SELECT "pid", "siteID", "d_inserted", "allocated"
+                          FROM randomization') %>%
+                drop_na(d_inserted)
+
+# Close the connection
+dbDisconnect(con)
+```
+
+## REDCap
+
+### Requesting an API token
+
+In order to bring in REDCap data regardless of which package you choose,
+you’ll need the following credentials:
+
+- `redcap_uri`: The URI (uniform resource identifier) of the REDCap
+  project
+
+- `token`: The user-specific string that serves as a password
+
+Requesting an API token (from the REDCap API documentation):
+
+*In order to use the REDCap API for a given REDCap project, you must
+first be given a token that is specific to your username for that
+particular project. Rather than using username/passwords, the REDCap API
+uses tokens as a means of secure authentication, in which a token must
+be included in every API request. Please note that each user will have a
+different token for each REDCap project to which they have access. Thus,
+multiple tokens will be required for making API requests to multiple
+projects.*
+
+*To obtain an API token for a project, navigate to that project, then
+click the API link in the Applications sidebar. On that page you will be
+able to request an API token for the project from your REDCap
+administrator, and that page will also display your API token if one has
+already been assigned. If you do not see a link for the API page on your
+project’s left-hand menu, then someone must first give you API
+privileges within the project (via the project’s User Rights page).*
+
+### Option 1: REDCapR
+
+`REDCapR` is one of several R packages designed to utilize REDCap’s API
+capabilities to pull study data into R.
+
+The following R code imports all REDCap variables for only the
+randomized participants in the LEAP study.
+
+``` r
+library(REDCapR)
+
+redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), 
+                           token = Sys.getenv("leap_token"),
+                           verbose = FALSE,
+                           export_survey_fields = TRUE,
+                           records = unique(rand_table$pid))$data
+```
+
+The output of this code is one “long” data set with one row per
+record_id/redcap_event_name (timepoint). Every single variable collected
+in this project is included in this dataset regardless of if it was
+collected at each timepoint or form. One drawback of this is that `NA`
+values are not as easily interpretable. `NA` could mean that the data is
+actually missing or that the variable is just not collected at that
+visit.
+
+<BR>
+
+The output of `redcap_read` can be modified further with:
+
+- `col_types` allows specification of what variable type each column
+  should be read in as
+
+- `fields` allows you to choose which variables to pull in
+
+- `events` lets you pull in data from only one timepoint
+
+``` r
+library(REDCapR)
+
+redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), 
+                           token = Sys.getenv("leap_token"),
+                           col_types = c("c", "i", "f"), # Character, integer, factor
+                           verbose = FALSE,
+                           fields = c("record_id", "sds_total", "severity_of_dependence_scale_sds_complete"),
+                           events = "month_24_selfrepor_arm_1",
+                           records = unique(rand_table$pid))$data
+```
+
+### Option 2: REDCapTidieR
+
+`REDCapTidieR` builds upon the `REDCapR` package and allows an
+additional option for organizing the data from more complex REDCap
+projects such as those involving longitudinal data.
+
+Although the function to pull data from REDCap looks quite similar, the
+output of `REDCapTidieR` at first glance may look more intimidating to
+work with.
+
+``` r
+library(REDCapTidieR)
+tidy_redcap <- read_redcap(redcap_uri = Sys.getenv("leap_uri"),
+                           token = Sys.getenv("leap_token"))
+
+tidy_redcap %>%
+  select(redcap_form_name, redcap_form_label, redcap_data, redcap_metadata, redcap_events, structure)
+```
+
+    ## # A REDCapTidieR Supertibble with 23 instruments
+    ##    redcap_form_name  redcap_form_label redcap_data redcap_metadata redcap_events
+    ##    <chr>             <chr>             <list>      <list>          <list>       
+    ##  1 smoking_habits    Smoking Habits    <tibble>    <tibble>        <tibble>     
+    ##  2 visual_analog_sc… Visual Analog Sc… <tibble>    <tibble>        <tibble>     
+    ##  3 weight_control_s… Weight Control S… <tibble>    <tibble>        <tibble>     
+    ##  4 yale_food_addict… Yale Food Addict… <tibble>    <tibble>        <tibble>     
+    ##  5 international_ph… International Ph… <tibble>    <tibble>        <tibble>     
+    ##  6 pittsburgh_sleep… Pittsburgh Sleep… <tibble>    <tibble>        <tibble>     
+    ##  7 social_support_e… Social Support E… <tibble>    <tibble>        <tibble>     
+    ##  8 social_support_d… Social Support D… <tibble>    <tibble>        <tibble>     
+    ##  9 weight_efficacy_… Weight Efficacy … <tibble>    <tibble>        <tibble>     
+    ## 10 sf12_health_surv… SF-12 Health Sur… <tibble>    <tibble>        <tibble>     
+    ## # ℹ 13 more rows
+    ## # ℹ 1 more variable: structure <chr>
+
+`read_redcap` returns one row per instrument (survey) with the data
+stored in nested tibbles under `redcap_data`. Metadata pulled from the
+REDCap codebooks is available in `redcap_metadata` and `redcap_events`
+shows at which timepoints the instrument is collected.
+
+#### Benefits
+
+There are some great benefits to using `REDCapTidieR` over `REDCapR`;
+however, you do not get the same level of customization in the initial
+call to the API such as column specification and record selection.
+
+The `REDCapTidieR` package works well with the `labelled` package by
+supporting a function called `make_labelled` that applies variable
+labels stored in metadata to each variable in the tibbles.
+
+It also transforms categorical variables, incorporating the variable
+type as set on REDCap and field value labels to make data more readable
+and ready for presentation in a table or analysis. See
+[link](https://chop-cgtinformatics.github.io/REDCapTidieR/articles/diving_deeper.html#categorical-variables)
+for more information.
+
+#### Examples
+
+`bind_tibbles` will extract each instrument tibble and add them to your
+global environment. Each tibble under `redcap_data` in `tidy_redcap`
+will become its own tibble in your environment named after its
+`redcap_form_name`. You can then work with each survey data individually
+or combine as needed.
+
+``` r
+tidy_redcap %>%
+  # Label variables in each tibble
+  make_labelled() %>%
+  # Extract tibbles and bind to environment
+  bind_tibbles()
+```
+
+`extract_tibbles` will put the instrument tibbles into a named list of
+tibbles where each element of the list includes the data for one
+instrument. Then you can map over the instrument tibbles with `map` and
+`filter` to only include randomized participant data.
+
+``` r
+list_of_tibbles <- 
+  tidy_redcap %>%
+  # Label variables in each tibble
+  make_labelled() %>%
+  # Extract to list of tibbles
+  extract_tibbles() %>%
+  # Filter to only include randomized participants
+  map(filter, record_id %in% unique(rand_table$pid))
+
+#Extract one survey tibble from the list of tibbles
+smoking_habits <- list_of_tibbles$smoking_habits
+```
+
+### Which package to choose?
+
+The short answer according to the developers is, [it
+depends](https://ouhscbbmc.github.io/REDCapR/articles/longitudinal-and-repeating.html#choosing-between-the-approaches).
+
+For our purposes at BDS where many of our trials are complex
+longitudinal studies, I believe generally `REDCapTidieR` should be your
+go-to package. With `REDCapTidieR`, variables are neatly organized
+within each instrument they belong to. Variables can be easily labelled
+and character data are automatically labelled based on codebook values.
+
+There may be times when `REDCapR` may be better for your needs, however,
+as the package does provide arguments that allow greater flexibility in
+only pulling in certain data and by allowing the user to specify column
+types. The ability to select what data is pulled in initially with
+`REDCapR` could be very important if you have many rows or columns that
+you will never need in your project, such as data from participants that
+were screened but never randomized. You can of course remove these after
+importing the data with `REDCapTidieR` as seen in the last example, but
+importing a lot of data that is not needed could be time consuming
+depending on your project size.
