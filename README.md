@@ -18,8 +18,7 @@ to access the databases. For a review of how to use Renviron, see
 ## SQL
 
 Note: To connect to a SQL database, be sure you have already set up the
-connection through ODBC Data Sources (Windows). TODO: How is this done
-on Mac?
+connection through ODBC Data Sources (Windows).
 
 There are a variety of packages that allow you to connect to a SQL
 database in R including `RODBC` and `odbc`.
@@ -78,10 +77,11 @@ configured when the connection was initially set up on your computer.
 
 One major difference is that `dbConnect` also allows the argument
 `database` which is not necessarily the same as the `dsn` since the
-`dsn` is the name that you chose to reference the data source and the
-`database` is the actual name of the `database`. Either argument can be
-supplied, but I would recommend using the `dsn` since that is what
-regular SAS users will be used to using already.
+`dsn` is the name that you chose to reference the data source when you
+set up the connection and the `database` is the actual name of the
+database. Either argument can be supplied, but I would recommend using
+`dsn` since that is what regular SAS users will be used to using
+already.
 
 #### Example
 
@@ -150,7 +150,7 @@ randomized participants in the LEAP study.
 ``` r
 library(REDCapR)
 
-redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), #TODO Unsure how to give the contents of this without putting it here. It should be the same for everyone and is difficult to find, but I'm not sure if it's okay to put here
+redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), 
                            token = Sys.getenv("leap_token"),
                            verbose = FALSE,
                            export_survey_fields = TRUE,
@@ -179,7 +179,7 @@ The output of `redcap_read` can be modified further with:
 ``` r
 library(REDCapR)
 
-redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), #TODO Unsure how to give the contents of this without putting it here. It should be the same for everyone and is difficult to find, but I'm not sure if it's okay to put here
+redcap_data <- redcap_read(redcap_uri = Sys.getenv("leap_uri"), 
                            token = Sys.getenv("leap_token"),
                            col_types = c("c", "i", "f"), # Character, integer, factor
                            verbose = FALSE,
@@ -260,11 +260,10 @@ tidy_redcap %>%
   bind_tibbles()
 ```
 
-Another function that may be useful is `extarct_tibbles` which will put
-the instrument tibbles into a named list of tibbles where each element
-of the list is the dataframe for one instrument. Then you can map over
-the instrument tibbles with `map` and `filter` to only include
-randomized participant data.
+`extract_tibbles` will put the instrument tibbles into a named list of
+tibbles where each element of the list includes the data for one
+instrument. Then you can map over the instrument tibbles with `map` and
+`filter` to only include randomized participant data.
 
 ``` r
 list_of_tibbles <- 
